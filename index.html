@@ -410,7 +410,7 @@ body{font-family:"DM Sans",sans-serif;background:var(--bg);color:var(--text);min
 .track-ring-center{text-align:center}
 .track-ring-val{font-size:16px;font-weight:600;line-height:1}
 .track-ring-eaten{font-size:10px;color:var(--text3)}
-.track-ring-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3)}
+.track-ring-lbl{font-size:9px;font-weight:600;letter-spacing:.03em;color:var(--text3)}
 .track-ring-remain{font-size:10px;color:var(--text2);text-align:center}
 
 .food-log{max-height:220px;overflow-y:auto;margin-bottom:14px;display:flex;flex-direction:column;gap:6px}
@@ -420,6 +420,8 @@ body{font-family:"DM Sans",sans-serif;background:var(--bg);color:var(--text);min
 .food-entry-kcal{font-size:13px;font-weight:600;color:var(--text2)}
 .food-entry-del{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 4px;line-height:1}
 .food-entry-del:hover{color:var(--red)}
+.food-entry-edit{background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;font-weight:700;padding:0 3px;line-height:1}
+.food-entry-edit:hover{color:var(--accent)}
 .food-input-row{display:flex;gap:8px;align-items:flex-end}
 .food-textarea{flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rsm);padding:9px 13px;color:var(--text);font-size:13px;font-family:"DM Sans",sans-serif;resize:none;outline:none;min-height:42px;max-height:100px;line-height:1.5;transition:border-color .15s}
 .food-textarea:focus{border-color:var(--accent)}
@@ -3821,7 +3823,7 @@ button, .chat-send-btn, .pw-submit-btn, .btn-save, .nav-tab, .bnav-item {
             <div class="track-ring-val" id="rval-kcal">0</div>
             <div class="track-ring-eaten">kcal</div>
           </div>
-          <div class="track-ring-lbl">Kalorien</div>
+          <div class="track-ring-lbl">kcal</div>
           <div class="track-ring-remain" id="rrem-kcal"></div>
         </div>
         <div class="track-ring-wrap">
@@ -3833,7 +3835,7 @@ button, .chat-send-btn, .pw-submit-btn, .btn-save, .nav-tab, .bnav-item {
             <div class="track-ring-val" id="rval-prot">0</div>
             <div class="track-ring-eaten">g</div>
           </div>
-          <div class="track-ring-lbl">Protein</div>
+          <div class="track-ring-lbl">Proteine</div>
           <div class="track-ring-remain" id="rrem-prot"></div>
         </div>
         <div class="track-ring-wrap">
@@ -3845,7 +3847,7 @@ button, .chat-send-btn, .pw-submit-btn, .btn-save, .nav-tab, .bnav-item {
             <div class="track-ring-val" id="rval-carb">0</div>
             <div class="track-ring-eaten">g</div>
           </div>
-          <div class="track-ring-lbl">Carbs</div>
+          <div class="track-ring-lbl">KH</div>
           <div class="track-ring-remain" id="rrem-carb"></div>
         </div>
         <div class="track-ring-wrap">
@@ -7298,8 +7300,53 @@ function buildFoodEntryFromPer100(name, per100, grams, sourceNote) {
     carb: Math.max(0, Math.round((per100.carb || 0) * factor)),
     fat: Math.max(0, Math.round((per100.fat || 0) * factor)),
     time: new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),
-    note: sourceNote || ''
+    note: sourceNote || '',
+    baseName: name || 'Lebensmittel',
+    amount: Math.round(Math.max(1, grams || 100)),
+    unit: 'g',
+    per100: {
+      kcal: Number(per100.kcal || 0),
+      prot: Number(per100.prot || 0),
+      carb: Number(per100.carb || 0),
+      fat: Number(per100.fat || 0)
+    }
   };
+}
+
+function encodeFoodMeta(meta) {
+  if (!meta || !meta.per100) return '';
+  try {
+    return '__meta__' + JSON.stringify(meta) + '__meta__';
+  } catch (e) {
+    return '';
+  }
+}
+
+function splitFoodNoteAndMeta(note) {
+  const raw = String(note || '');
+  const m = raw.match(/__meta__(\{[\s\S]*\})__meta__/);
+  if (!m) return { note: raw, meta: null };
+  let parsed = null;
+  try { parsed = JSON.parse(m[1]); } catch (e) {}
+  const cleaned = raw.replace(m[0], '').trim();
+  return { note: cleaned, meta: parsed };
+}
+
+function noteWithFoodMeta(note, entry) {
+  const userNote = String(note || '').trim();
+  if (!entry || !entry.per100) return userNote;
+  const meta = encodeFoodMeta({
+    baseName: entry.baseName || entry.name || 'Lebensmittel',
+    amount: Math.max(1, Math.round(entry.amount || 100)),
+    unit: entry.unit === 'ml' ? 'ml' : 'g',
+    per100: {
+      kcal: Number(entry.per100.kcal || 0),
+      prot: Number(entry.per100.prot || 0),
+      carb: Number(entry.per100.carb || 0),
+      fat: Number(entry.per100.fat || 0)
+    }
+  });
+  return userNote ? (userNote + ' ' + meta) : meta;
 }
 
 function loadRecentScannedFoods() {
@@ -7393,14 +7440,14 @@ function confirmFoodQtyModal() {
     resolve({ amount: rounded, unit: _foodQtyUnit });
   }
 }
-function openFoodQtyModal(name, presetAmount) {
+function openFoodQtyModal(name, presetAmount, presetUnit) {
   const ov = document.getElementById('food-qty-modal');
   const sub = document.getElementById('food-qty-sub');
   const inp = document.getElementById('food-qty-input');
   if (!ov || !inp) return Promise.resolve(null);
   if (sub) sub.textContent = (name ? name + ' — ' : '') + 'Bitte Menge in g oder ml eingeben.';
   inp.value = String(Math.max(1, parseInt(presetAmount || '100', 10) || 100));
-  setFoodQtyUnit('g');
+  setFoodQtyUnit(presetUnit === 'ml' ? 'ml' : 'g');
   ov.style.display = 'flex';
   requestAnimationFrame(() => ov.classList.add('open'));
   setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 30);
@@ -7508,6 +7555,9 @@ async function addFoodDbResult(idx) {
   if (!portion) return;
   const entry = buildFoodEntryFromPer100(item.name, item.per100, portion.amount, 'Open Food Facts');
   entry.name = (item.name || 'Lebensmittel') + ' (' + portion.amount + portion.unit + ')';
+  entry.baseName = item.name || 'Lebensmittel';
+  entry.amount = portion.amount;
+  entry.unit = portion.unit;
   if (currentUser) { const savedId = await saveFoodEntry(entry); entry.id = savedId; }
   foodLog.push(entry);
   renderFoodLog();
@@ -7524,6 +7574,9 @@ async function addFoodDbProduct(product) {
   if (!portion) return;
   const entry = buildFoodEntryFromPer100(product.name, product.per100, portion.amount, 'Open Food Facts Barcode');
   entry.name = (product.name || 'Lebensmittel') + ' (' + portion.amount + portion.unit + ')';
+  entry.baseName = product.name || 'Lebensmittel';
+  entry.amount = portion.amount;
+  entry.unit = portion.unit;
   if (currentUser) { const savedId = await saveFoodEntry(entry); entry.id = savedId; }
   foodLog.push(entry);
   renderFoodLog();
@@ -7765,11 +7818,54 @@ function renderFoodLog() {
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
         '<span class="food-entry-kcal">' + e.kcal + ' kcal</span>' +
+        '<button class="food-entry-edit" onclick="editFoodEntry(' + i + ')" title="Eintrag bearbeiten">Edit</button>' +
         '<button class="food-entry-del" onclick="deleteFoodEntry(' + i + ')">×</button>' +
       '</div>' +
     '</div>'
   ).join('');
   updateRings(Math.round(tk),Math.round(tp),Math.round(tc),Math.round(tf));
+}
+
+async function editFoodEntry(idx) {
+  const entry = foodLog[idx];
+  if (!entry) return;
+  if (entry.per100 && isFinite(entry.amount)) {
+    const portion = await openFoodQtyModal(entry.baseName || entry.name, entry.amount, entry.unit);
+    if (!portion) return;
+    const updated = buildFoodEntryFromPer100(entry.baseName || entry.name, entry.per100, portion.amount, entry.note || '');
+    updated.name = (entry.baseName || entry.name || 'Lebensmittel') + ' (' + portion.amount + portion.unit + ')';
+    updated.id = entry.id;
+    updated.time = entry.time;
+    updated.unit = portion.unit;
+    updated.amount = portion.amount;
+    foodLog[idx] = updated;
+    if (currentUser && updated.id) await updateFoodEntryDb(updated.id, updated);
+    renderFoodLog();
+    const info = document.getElementById('food-error');
+    if (info) {
+      info.style.color = 'var(--green)';
+      info.textContent = '✓ Eintrag aktualisiert';
+    }
+    return;
+  }
+  const preset = [entry.kcal || 0, entry.prot || 0, entry.carb || 0, entry.fat || 0].join(',');
+  const raw = prompt('Naehrwerte anpassen als kcal,protein,carbs,fett', preset);
+  if (raw === null) return;
+  const parts = String(raw).split(',').map(x => parseFloat(String(x).trim().replace(',', '.')));
+  if (parts.length !== 4 || parts.some(v => !isFinite(v) || v < 0)) {
+    const err = document.getElementById('food-error');
+    if (err) {
+      err.style.color = 'var(--red)';
+      err.textContent = 'Bitte Format nutzen: kcal,protein,carbs,fett';
+    }
+    return;
+  }
+  entry.kcal = Math.round(parts[0]);
+  entry.prot = Math.round(parts[1]);
+  entry.carb = Math.round(parts[2]);
+  entry.fat = Math.round(parts[3]);
+  if (currentUser && entry.id) await updateFoodEntryDb(entry.id, entry);
+  renderFoodLog();
 }
 
 function updateRings(kcal, prot, carb, fat) {
@@ -9694,7 +9790,17 @@ async function loadFoodLog() {
   const { data, error } = await sb.from('food_log')
     .select('*').eq('user_id', currentUser.id).eq('date', today).order('created_at');
   if (error) { console.error('Food log error:', error); return; }
-  foodLog = (data || []).map(r => ({ id: r.id, name: r.name, kcal: r.kcal, prot: r.prot, carb: r.carb, fat: r.fat, time: r.time_str, note: r.note }));
+  foodLog = (data || []).map(r => {
+    const noteParts = splitFoodNoteAndMeta(r.note);
+    const out = { id: r.id, name: r.name, kcal: r.kcal, prot: r.prot, carb: r.carb, fat: r.fat, time: r.time_str, note: noteParts.note || '' };
+    if (noteParts.meta && noteParts.meta.per100) {
+      out.baseName = noteParts.meta.baseName || r.name;
+      out.amount = Math.max(1, parseInt(noteParts.meta.amount || 100, 10) || 100);
+      out.unit = noteParts.meta.unit === 'ml' ? 'ml' : 'g';
+      out.per100 = noteParts.meta.per100;
+    }
+    return out;
+  });
   renderFoodLog();
 }
 
@@ -9702,10 +9808,23 @@ async function saveFoodEntry(entry) {
   const { data, error } = await sb.from('food_log').insert({
     user_id: currentUser.id, date: td(), name: entry.name,
     kcal: entry.kcal, prot: entry.prot, carb: entry.carb, fat: entry.fat,
-    time_str: entry.time, note: entry.note || ''
+    time_str: entry.time, note: noteWithFoodMeta(entry.note || '', entry)
   }).select().single();
   if (error) throw error;
   return data.id;
+}
+
+async function updateFoodEntryDb(id, entry) {
+  if (!id || !currentUser) return;
+  const { error } = await sb.from('food_log').update({
+    name: entry.name,
+    kcal: entry.kcal,
+    prot: entry.prot,
+    carb: entry.carb,
+    fat: entry.fat,
+    note: noteWithFoodMeta(entry.note || '', entry)
+  }).eq('id', id).eq('user_id', currentUser.id);
+  if (error) console.error('Update food error:', error);
 }
 
 async function deleteFoodEntryDb(id) {
